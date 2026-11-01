@@ -3,18 +3,25 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/dede999/tools_crud_go/internal/domain"
+	"github.com/dede999/tools_crud_go/internal/notifier"
 	"github.com/dede999/tools_crud_go/internal/repository"
 )
 
 type DeviceHandler struct {
-	repo repository.DeviceRepository
+	repo     repository.DeviceRepository
+	notifier notifier.Notifier
 }
 
-func NewDeviceHandler(repo repository.DeviceRepository) *DeviceHandler {
-	return &DeviceHandler{repo: repo}
+func NewDeviceHandler(repo repository.DeviceRepository, notif notifier.Notifier) *DeviceHandler {
+	return &DeviceHandler{
+		repo:     repo,
+		notifier: notif,
+	}
 }
 
 func (h *DeviceHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -24,6 +31,7 @@ func (h *DeviceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /devices/{id}", h.UpdateFull)
 	mux.HandleFunc("PATCH /devices/{id}", h.UpdatePartial)
 	mux.HandleFunc("DELETE /devices/{id}", h.Delete)
+	mux.HandleFunc("GET /devices/events", h.SubscribeEvents)
 }
 
 type createDeviceRequest struct {
@@ -128,7 +136,7 @@ func (h *DeviceHandler) UpdateFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, _, err = device.Update(&req.Name, &req.Brand, &req.State)
+	stateChanged, prevState, nextState, err := device.Update(&req.Name, &req.Brand, &req.State)
 	if err != nil {
 		respondDomainError(w, err)
 		return
@@ -137,6 +145,15 @@ func (h *DeviceHandler) UpdateFull(w http.ResponseWriter, r *http.Request) {
 	if err := h.repo.Update(r.Context(), device); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update device")
 		return
+	}
+
+	if stateChanged && h.notifier != nil {
+		h.notifier.Publish(notifier.DeviceStateChangeEvent{
+			DeviceID:      device.ID,
+			PreviousState: prevState,
+			NewState:      nextState,
+			Timestamp:     time.Now().UTC(),
+		})
 	}
 
 	respondJSON(w, http.StatusOK, device)
@@ -165,7 +182,7 @@ func (h *DeviceHandler) UpdatePartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, _, err = device.Update(req.Name, req.Brand, req.State)
+	stateChanged, prevState, nextState, err := device.Update(req.Name, req.Brand, req.State)
 	if err != nil {
 		respondDomainError(w, err)
 		return
@@ -174,6 +191,15 @@ func (h *DeviceHandler) UpdatePartial(w http.ResponseWriter, r *http.Request) {
 	if err := h.repo.Update(r.Context(), device); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update device")
 		return
+	}
+
+	if stateChanged && h.notifier != nil {
+		h.notifier.Publish(notifier.DeviceStateChangeEvent{
+			DeviceID:      device.ID,
+			PreviousState: prevState,
+			NewState:      nextState,
+			Timestamp:     time.Now().UTC(),
+		})
 	}
 
 	respondJSON(w, http.StatusOK, device)
@@ -207,6 +233,46 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *DeviceHandler) SubscribeEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		respondError(w, http.StatusInternalServerError, "streaming unsupported by client")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if h.notifier == nil {
+		respondError(w, http.StatusServiceUnavailable, "event notifier unavailable")
+		return
+	}
+
+	eventsCh, unsubscribe := h.notifier.Subscribe(r.Context())
+	defer unsubscribe()
+
+	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-eventsCh:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(event)
+			if err == nil {
+				fmt.Fprintf(w, "event: state_changed\ndata: %s\n\n", data)
+				flusher.Flush()
+			}
+		}
+	}
 }
 
 func respondJSON(w http.ResponseWriter, status int, data any) {

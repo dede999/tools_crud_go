@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dede999/tools_crud_go/internal/handler"
+	"github.com/dede999/tools_crud_go/internal/notifier"
 	"github.com/dede999/tools_crud_go/internal/repository"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -46,7 +47,8 @@ func main() {
 	}
 
 	repo := repository.NewPostgresRepository(db)
-	deviceHandler := handler.NewDeviceHandler(repo)
+	eventBroker := notifier.NewBroker()
+	deviceHandler := handler.NewDeviceHandler(repo, eventBroker)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -126,3 +128,4 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		log.Printf("%s %s in %v", r.Method, r.URL.Path, time.Since(start))
 	})
 }
+

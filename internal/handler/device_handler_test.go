@@ -9,9 +9,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dede999/tools_crud_go/internal/domain"
 	"github.com/dede999/tools_crud_go/internal/handler"
+	"github.com/dede999/tools_crud_go/internal/notifier"
 	"github.com/dede999/tools_crud_go/internal/repository"
 )
 
@@ -82,16 +84,17 @@ func (f *fakeRepository) Delete(ctx context.Context, id string) error {
 
 var _ repository.DeviceRepository = (*fakeRepository)(nil)
 
-func setupTestServer() (http.Handler, *fakeRepository) {
+func setupTestServer() (http.Handler, *fakeRepository, *notifier.EventBroker) {
 	repo := newFakeRepository()
-	h := handler.NewDeviceHandler(repo)
+	broker := notifier.NewBroker()
+	h := handler.NewDeviceHandler(repo, broker)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
-	return mux, repo
+	return mux, repo, broker
 }
 
 func TestDeviceHandler_Create(t *testing.T) {
-	mux, _ := setupTestServer()
+	mux, _, _ := setupTestServer()
 
 	t.Run("successfully create device", func(t *testing.T) {
 		payload := `{"name":"MacBook Pro","brand":"Apple","state":"available"}`
@@ -139,7 +142,7 @@ func TestDeviceHandler_Create(t *testing.T) {
 }
 
 func TestDeviceHandler_GetByID(t *testing.T) {
-	mux, repo := setupTestServer()
+	mux, repo, _ := setupTestServer()
 
 	dev, _ := domain.NewDevice("Pixel 9", "Google", domain.StateAvailable)
 	_ = repo.Create(context.Background(), dev)
@@ -168,7 +171,7 @@ func TestDeviceHandler_GetByID(t *testing.T) {
 }
 
 func TestDeviceHandler_List(t *testing.T) {
-	mux, repo := setupTestServer()
+	mux, repo, _ := setupTestServer()
 
 	d1, _ := domain.NewDevice("iPhone 15", "Apple", domain.StateAvailable)
 	d2, _ := domain.NewDevice("Galaxy S24", "Samsung", domain.StateInUse)
@@ -220,14 +223,20 @@ func TestDeviceHandler_List(t *testing.T) {
 }
 
 func TestDeviceHandler_Update(t *testing.T) {
-	mux, repo := setupTestServer()
+	mux, repo, broker := setupTestServer()
 
 	d1, _ := domain.NewDevice("iPad Air", "Apple", domain.StateAvailable)
 	d2, _ := domain.NewDevice("ThinkPad X1", "Lenovo", domain.StateInUse)
 	_ = repo.Create(context.Background(), d1)
 	_ = repo.Create(context.Background(), d2)
 
-	t.Run("full update (PUT) available device", func(t *testing.T) {
+	// Subscribe to verify state change notifications
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eventsCh, unsub := broker.Subscribe(ctx)
+	defer unsub()
+
+	t.Run("full update (PUT) available device and receive notification", func(t *testing.T) {
 		payload := `{"name":"iPad Pro","brand":"Apple","state":"inactive"}`
 		req := httptest.NewRequest(http.MethodPut, "/devices/"+d1.ID, bytes.NewBufferString(payload))
 		rec := httptest.NewRecorder()
@@ -236,6 +245,15 @@ func TestDeviceHandler_Update(t *testing.T) {
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		select {
+		case ev := <-eventsCh:
+			if ev.DeviceID != d1.ID || ev.PreviousState != domain.StateAvailable || ev.NewState != domain.StateInactive {
+				t.Errorf("unexpected event received: %+v", ev)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("expected notification event on state change")
 		}
 	})
 
@@ -248,6 +266,15 @@ func TestDeviceHandler_Update(t *testing.T) {
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected 200 OK, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		select {
+		case ev := <-eventsCh:
+			if ev.DeviceID != d2.ID || ev.PreviousState != domain.StateInUse || ev.NewState != domain.StateAvailable {
+				t.Errorf("unexpected event received: %+v", ev)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("expected notification event on state change")
 		}
 	})
 
@@ -270,7 +297,7 @@ func TestDeviceHandler_Update(t *testing.T) {
 }
 
 func TestDeviceHandler_Delete(t *testing.T) {
-	mux, repo := setupTestServer()
+	mux, repo, _ := setupTestServer()
 
 	d1, _ := domain.NewDevice("Mouse", "Logitech", domain.StateAvailable)
 	d2, _ := domain.NewDevice("Server Rack", "Dell", domain.StateInUse)
@@ -299,3 +326,4 @@ func TestDeviceHandler_Delete(t *testing.T) {
 		}
 	})
 }
+
