@@ -207,3 +207,4 @@ docker pull ghcr.io/dede999/tools_crud_go:latest
 * **Authentication & Authorization**: Integration with OpenID Connect (OIDC) / OAuth2 JWT bearer tokens to secure administrative operations.
 * **Rate Limiting**: Token-bucket rate limiting middleware per client IP to mitigate denial-of-service abuse.
 * **Observability**: Exporting structured OpenTelemetry metrics (request latency, database connection pool statistics) and distributed traces to Prometheus/Grafana or Cloud Trace.
+
