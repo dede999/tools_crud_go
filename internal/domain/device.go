@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -14,16 +15,46 @@ const (
 	StateAvailable DeviceState = "available"
 	StateInUse     DeviceState = "in-use"
 	StateInactive  DeviceState = "inactive"
+
+	MaxNameLength  = 255
+	MaxBrandLength = 255
 )
 
 var (
-	ErrInvalidName              = errors.New("device name cannot be empty")
-	ErrInvalidBrand             = errors.New("device brand cannot be empty")
-	ErrInvalidState             = errors.New("invalid device state, must be one of: available, in-use, inactive")
-	ErrCannotUpdateInUseDevice  = errors.New("name and brand cannot be updated if device is in use")
-	ErrCannotDeleteInUseDevice  = errors.New("in use devices cannot be deleted")
-	ErrDeviceNotFound           = errors.New("device not found")
+	ErrInvalidName             = errors.New("device name cannot be empty")
+	ErrNameTooLong             = errors.New("device name exceeds maximum length of 255 characters")
+	ErrInvalidBrand            = errors.New("device brand cannot be empty")
+	ErrBrandTooLong            = errors.New("device brand exceeds maximum length of 255 characters")
+	ErrInvalidCharacters       = errors.New("input contains invalid or unprintable control characters")
+	ErrInvalidState            = errors.New("invalid device state, must be one of: available, in-use, inactive")
+	ErrCannotUpdateInUseDevice = errors.New("name and brand cannot be updated if device is in use")
+	ErrCannotDeleteInUseDevice = errors.New("in use devices cannot be deleted")
+	ErrDeviceNotFound          = errors.New("device not found")
 )
+
+func validateField(val string, maxLen int, emptyErr, tooLongErr error) (string, error) {
+	if !utf8.ValidString(val) {
+		return "", ErrInvalidCharacters
+	}
+
+	for _, r := range val {
+		// Reject null byte and non-printable control characters
+		if r < 32 {
+			return "", ErrInvalidCharacters
+		}
+	}
+
+	trimmed := strings.TrimSpace(val)
+	if trimmed == "" {
+		return "", emptyErr
+	}
+
+	if utf8.RuneCountInString(trimmed) > maxLen {
+		return "", tooLongErr
+	}
+
+	return trimmed, nil
+}
 
 func IsValidState(s DeviceState) bool {
 	switch s {
@@ -43,14 +74,14 @@ type Device struct {
 }
 
 func NewDevice(name, brand string, state DeviceState) (*Device, error) {
-	trimmedName := strings.TrimSpace(name)
-	if trimmedName == "" {
-		return nil, ErrInvalidName
+	validatedName, err := validateField(name, MaxNameLength, ErrInvalidName, ErrNameTooLong)
+	if err != nil {
+		return nil, err
 	}
 
-	trimmedBrand := strings.TrimSpace(brand)
-	if trimmedBrand == "" {
-		return nil, ErrInvalidBrand
+	validatedBrand, err := validateField(brand, MaxBrandLength, ErrInvalidBrand, ErrBrandTooLong)
+	if err != nil {
+		return nil, err
 	}
 
 	if state == "" {
@@ -63,8 +94,8 @@ func NewDevice(name, brand string, state DeviceState) (*Device, error) {
 
 	return &Device{
 		ID:        uuid.NewString(),
-		Name:      trimmedName,
-		Brand:     trimmedBrand,
+		Name:      validatedName,
+		Brand:     validatedBrand,
 		State:     state,
 		CreatedAt: time.Now().UTC(),
 	}, nil
@@ -80,21 +111,26 @@ func (d *Device) Update(name *string, brand *string, state *DeviceState) (bool, 
 		}
 	}
 
+	var newName = d.Name
 	if name != nil {
-		trimmedName := strings.TrimSpace(*name)
-		if trimmedName == "" {
-			return false, d.State, d.State, ErrInvalidName
+		vName, err := validateField(*name, MaxNameLength, ErrInvalidName, ErrNameTooLong)
+		if err != nil {
+			return false, d.State, d.State, err
 		}
-		d.Name = trimmedName
+		newName = vName
 	}
 
+	var newBrand = d.Brand
 	if brand != nil {
-		trimmedBrand := strings.TrimSpace(*brand)
-		if trimmedBrand == "" {
-			return false, d.State, d.State, ErrInvalidBrand
+		vBrand, err := validateField(*brand, MaxBrandLength, ErrInvalidBrand, ErrBrandTooLong)
+		if err != nil {
+			return false, d.State, d.State, err
 		}
-		d.Brand = trimmedBrand
+		newBrand = vBrand
 	}
+
+	d.Name = newName
+	d.Brand = newBrand
 
 	stateChanged := false
 	prevState := d.State
