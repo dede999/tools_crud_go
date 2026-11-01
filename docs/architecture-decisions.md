@@ -69,3 +69,17 @@ This document records the architectural and design decisions made throughout the
     * Implemented using standard Go concurrency (goroutines, channels, and `http.Flusher`).
     * Trivially testable using `curl -N`, browsers, or automated scripts.
   * **Cons**: Unidirectional (server-to-client only), which perfectly fits the notification requirement.
+
+---
+
+## ADR 006: Dedicated State Transition Audit Table & Materialized Views
+
+* **Status**: Rejected (Abandoned Decision)
+* **Context**: We evaluated decoupling the immutable device properties (`id`, `creation_time`) from mutable states (`state`) by storing state transitions in a dedicated historical/audit log table (inspired by patterns such as Ruby's `paper_trail` or event-sourcing), and reconstructing current state for queries via composite joins or PostgreSQL Materialized Views.
+* **Reason for Rejection (Trade-off Analysis)**:
+  1. **Query Performance Degradation**: Fetching current devices (e.g. `GET /devices?state=available`) would require either composite aggregation queries (`DISTINCT ON` or `MAX(changed_at) GROUP BY device_id`) or Materialized Views. Composite queries degrade significantly at scale, while Materialized Views require expensive, asynchronous refreshes (`REFRESH MATERIALIZED VIEW`), leading to eventual consistency issues.
+  2. **YAGNI (You Aren't Gonna Need It)**: The current requirements do not mandate historical audit logs, time-travel debugging, or replay of past states. Adding a multi-table transition schema adds structural complexity without immediate business value.
+  3. **Architectural Simplicity**: Storing the current state directly on the `devices` table with B-Tree indexes enables sub-millisecond filtering on `brand` and `state`, perfectly aligning with the evaluation criteria (*"Code efficiency and general performance"*).
+* **Future Re-evaluation**: If future requirements introduce strict audit compliance (e.g., tracking who changed which state, when, and why), an append-only `device_state_transitions` table can be introduced alongside the existing operational `devices` table (Operational Snapshot + Audit Log pattern) without compromising operational read performance.
+
+
