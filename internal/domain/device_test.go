@@ -54,6 +54,40 @@ func TestNewDevice(t *testing.T) {
 		}
 	})
 
+	t.Run("fail when name exceeds maximum length", func(t *testing.T) {
+		longName := string(make([]byte, 256))
+		for i := range longName {
+			longName = longName[:i] + "a" + longName[i+1:]
+		}
+		_, err := domain.NewDevice(longName, "Apple", domain.StateAvailable)
+		if err != domain.ErrNameTooLong {
+			t.Errorf("expected ErrNameTooLong, got %v", err)
+		}
+	})
+
+	t.Run("fail when brand exceeds maximum length", func(t *testing.T) {
+		longBrand := string(make([]byte, 256))
+		for i := range longBrand {
+			longBrand = longBrand[:i] + "b" + longBrand[i+1:]
+		}
+		_, err := domain.NewDevice("MacBook Pro", longBrand, domain.StateAvailable)
+		if err != domain.ErrBrandTooLong {
+			t.Errorf("expected ErrBrandTooLong, got %v", err)
+		}
+	})
+
+	t.Run("fail when input contains null byte or control characters", func(t *testing.T) {
+		_, err := domain.NewDevice("MacBook\x00Pro", "Apple", domain.StateAvailable)
+		if err != domain.ErrInvalidCharacters {
+			t.Errorf("expected ErrInvalidCharacters, got %v", err)
+		}
+
+		_, err = domain.NewDevice("MacBook Pro", "Apple\x07", domain.StateAvailable)
+		if err != domain.ErrInvalidCharacters {
+			t.Errorf("expected ErrInvalidCharacters, got %v", err)
+		}
+	})
+
 	t.Run("fail when state is invalid", func(t *testing.T) {
 		_, err := domain.NewDevice("MacBook Pro", "Apple", domain.DeviceState("broken"))
 		if err != domain.ErrInvalidState {
@@ -174,3 +208,4 @@ func TestDevice_CanDelete(t *testing.T) {
 		}
 	})
 }
+
