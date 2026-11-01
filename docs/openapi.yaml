@@ -1,0 +1,333 @@
+openapi: 3.0.3
+info:
+  title: Devices Management API
+  description: >
+    Production-ready REST API for managing and persisting device resources with
+    real-time state change notifications via Server-Sent Events (SSE).
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      description: Returns service liveness and health status.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /devices:
+    post:
+      summary: Create Device
+      description: Creates a new device resource.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeviceRequest'
+      responses:
+        '201':
+          description: Device created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          description: Validation error or malformed JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: List Devices
+      description: Fetches devices with optional filtering by brand and state.
+      parameters:
+        - name: brand
+          in: query
+          required: false
+          description: Filter devices by exact brand name
+          schema:
+            type: string
+            example: Apple
+        - name: state
+          in: query
+          required: false
+          description: Filter devices by state (available, in-use, inactive)
+          schema:
+            $ref: '#/components/schemas/DeviceState'
+      responses:
+        '200':
+          description: List of devices matching filter criteria
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Device'
+        '400':
+          description: Invalid query parameters (e.g., unrecognized state)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /devices/{id}:
+    get:
+      summary: Get Device by ID
+      description: Retrieves a single device resource by its unique identifier.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Device unique identifier (UUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Device found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Fully Update Device
+      description: Fully updates name, brand, and/or state. Creation time is immutable.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeviceRequest'
+      responses:
+        '200':
+          description: Device updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          description: Invalid input or validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict — name or brand cannot be updated if device is currently in-use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      summary: Partially Update Device
+      description: Partially updates any subset of name, brand, or state. Creation time is immutable.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDeviceRequest'
+      responses:
+        '200':
+          description: Device partially updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          description: Invalid input or validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict — name or brand cannot be updated if device is currently in-use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete Device
+      description: Deletes a device resource. Devices currently in-use cannot be deleted.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Device deleted successfully (No Content)
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict — device is currently in-use and cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /devices/events:
+    get:
+      summary: Subscribe to Device State Changes
+      description: >
+        Server-Sent Events (SSE) stream broadcasting device state changes in real time.
+        Notifications are dispatched only after state changes are successfully persisted.
+      responses:
+        '200':
+          description: Event stream established
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: connected
+                  data: {}
+
+                  event: state_changed
+                  data: {"device_id":"550e8400-e29b-41d4-a716-446655440000","previous_state":"available","new_state":"in-use","timestamp":"2026-11-01T19:00:00Z"}
+
+components:
+  schemas:
+    DeviceState:
+      type: string
+      enum:
+        - available
+        - in-use
+        - inactive
+      example: available
+
+    Device:
+      type: object
+      required:
+        - id
+        - name
+        - brand
+        - state
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        name:
+          type: string
+          maxLength: 255
+          example: MacBook Pro M3
+        brand:
+          type: string
+          maxLength: 255
+          example: Apple
+        state:
+          $ref: '#/components/schemas/DeviceState'
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-11-01T19:00:00Z
+
+    CreateDeviceRequest:
+      type: object
+      required:
+        - name
+        - brand
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: MacBook Pro M3
+        brand:
+          type: string
+          maxLength: 255
+          example: Apple
+        state:
+          $ref: '#/components/schemas/DeviceState'
+          default: available
+
+    UpdateDeviceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: MacBook Pro M3
+        brand:
+          type: string
+          maxLength: 255
+          example: Apple
+        state:
+          $ref: '#/components/schemas/DeviceState'
+
+    DeviceStateChangedEvent:
+      type: object
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        previous_state:
+          $ref: '#/components/schemas/DeviceState'
+        new_state:
+          $ref: '#/components/schemas/DeviceState'
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: device not found
