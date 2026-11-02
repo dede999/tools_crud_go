@@ -281,7 +281,7 @@ func TestDeviceHandler_Update(t *testing.T) {
 	t.Run("reject updating name or brand on in-use device (409 Conflict)", func(t *testing.T) {
 		// Put d2 back to in-use
 		inUseState := domain.StateInUse
-		_, _, _, _ = d2.Update(nil, nil, &inUseState)
+		_, _ = d2.Update(domain.UpdateParams{State: &inUseState})
 		_ = repo.Update(context.Background(), d2)
 
 		payload := `{"name":"ThinkPad X2"}`

@@ -112,12 +112,16 @@ func TestDevice_Update(t *testing.T) {
 		newBrand := "New Brand"
 		newState := domain.StateInUse
 
-		changed, prev, next, err := dev.Update(&newName, &newBrand, &newState)
+		res, err := dev.Update(domain.UpdateParams{
+			Name:  &newName,
+			Brand: &newBrand,
+			State: &newState,
+		})
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !changed || prev != domain.StateAvailable || next != domain.StateInUse {
-			t.Errorf("state transition mismatch: changed=%v prev=%v next=%v", changed, prev, next)
+		if !res.StateChanged || res.PreviousState != domain.StateAvailable || res.NewState != domain.StateInUse {
+			t.Errorf("state transition mismatch: %+v", res)
 		}
 		if dev.Name != newName || dev.Brand != newBrand || dev.State != newState {
 			t.Errorf("device values not updated properly")
@@ -137,13 +141,13 @@ func TestDevice_Update(t *testing.T) {
 		}
 
 		newName := "Brand New Name"
-		_, _, _, err := dev.Update(&newName, nil, nil)
+		_, err := dev.Update(domain.UpdateParams{Name: &newName})
 		if err != domain.ErrCannotUpdateInUseDevice {
 			t.Errorf("expected ErrCannotUpdateInUseDevice when updating name, got %v", err)
 		}
 
 		newBrand := "Dell"
-		_, _, _, err = dev.Update(nil, &newBrand, nil)
+		_, err = dev.Update(domain.UpdateParams{Brand: &newBrand})
 		if err != domain.ErrCannotUpdateInUseDevice {
 			t.Errorf("expected ErrCannotUpdateInUseDevice when updating brand, got %v", err)
 		}
@@ -159,12 +163,12 @@ func TestDevice_Update(t *testing.T) {
 		}
 
 		newState := domain.StateAvailable
-		changed, prev, next, err := dev.Update(nil, nil, &newState)
+		res, err := dev.Update(domain.UpdateParams{State: &newState})
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !changed || prev != domain.StateInUse || next != domain.StateAvailable {
-			t.Errorf("state transition mismatch: changed=%v prev=%v next=%v", changed, prev, next)
+		if !res.StateChanged || res.PreviousState != domain.StateInUse || res.NewState != domain.StateAvailable {
+			t.Errorf("state transition mismatch: %+v", res)
 		}
 		if dev.State != domain.StateAvailable {
 			t.Errorf("expected state to be available, got %q", dev.State)
@@ -181,29 +185,29 @@ func TestDevice_Update(t *testing.T) {
 		}
 
 		invalidState := domain.DeviceState("unknown")
-		_, _, _, err := dev.Update(nil, nil, &invalidState)
+		_, err := dev.Update(domain.UpdateParams{State: &invalidState})
 		if err != domain.ErrInvalidState {
 			t.Errorf("expected ErrInvalidState, got %v", err)
 		}
 	})
 }
 
-func TestDevice_CanDelete(t *testing.T) {
+func TestDevice_ValidateDelete(t *testing.T) {
 	t.Run("allow delete when available or inactive", func(t *testing.T) {
 		availableDev := domain.Device{State: domain.StateAvailable}
-		if err := availableDev.CanDelete(); err != nil {
+		if err := availableDev.ValidateDelete(); err != nil {
 			t.Errorf("expected available device to be deletable, got %v", err)
 		}
 
 		inactiveDev := domain.Device{State: domain.StateInactive}
-		if err := inactiveDev.CanDelete(); err != nil {
+		if err := inactiveDev.ValidateDelete(); err != nil {
 			t.Errorf("expected inactive device to be deletable, got %v", err)
 		}
 	})
 
 	t.Run("prevent delete when in-use", func(t *testing.T) {
 		inUseDev := domain.Device{State: domain.StateInUse}
-		if err := inUseDev.CanDelete(); err != domain.ErrCannotDeleteInUseDevice {
+		if err := inUseDev.ValidateDelete(); err != domain.ErrCannotDeleteInUseDevice {
 			t.Errorf("expected ErrCannotDeleteInUseDevice, got %v", err)
 		}
 	})

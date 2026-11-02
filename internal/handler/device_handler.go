@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -136,7 +137,11 @@ func (h *DeviceHandler) UpdateFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stateChanged, prevState, nextState, err := device.Update(&req.Name, &req.Brand, &req.State)
+	result, err := device.Update(domain.UpdateParams{
+		Name:  &req.Name,
+		Brand: &req.Brand,
+		State: &req.State,
+	})
 	if err != nil {
 		respondDomainError(w, err)
 		return
@@ -147,11 +152,11 @@ func (h *DeviceHandler) UpdateFull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if stateChanged && h.notifier != nil {
+	if result.StateChanged && h.notifier != nil {
 		h.notifier.Publish(notifier.DeviceStateChangeEvent{
 			DeviceID:      device.ID,
-			PreviousState: prevState,
-			NewState:      nextState,
+			PreviousState: result.PreviousState,
+			NewState:      result.NewState,
 			Timestamp:     time.Now().UTC(),
 		})
 	}
@@ -182,7 +187,11 @@ func (h *DeviceHandler) UpdatePartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stateChanged, prevState, nextState, err := device.Update(req.Name, req.Brand, req.State)
+	result, err := device.Update(domain.UpdateParams{
+		Name:  req.Name,
+		Brand: req.Brand,
+		State: req.State,
+	})
 	if err != nil {
 		respondDomainError(w, err)
 		return
@@ -193,11 +202,11 @@ func (h *DeviceHandler) UpdatePartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if stateChanged && h.notifier != nil {
+	if result.StateChanged && h.notifier != nil {
 		h.notifier.Publish(notifier.DeviceStateChangeEvent{
 			DeviceID:      device.ID,
-			PreviousState: prevState,
-			NewState:      nextState,
+			PreviousState: result.PreviousState,
+			NewState:      result.NewState,
 			Timestamp:     time.Now().UTC(),
 		})
 	}
@@ -222,7 +231,7 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := device.CanDelete(); err != nil {
+	if err := device.ValidateDelete(); err != nil {
 		respondDomainError(w, err)
 		return
 	}
@@ -289,7 +298,9 @@ func (h *DeviceHandler) SubscribeEvents(w http.ResponseWriter, r *http.Request) 
 func respondJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("failed to encode JSON response: %v", err)
+	}
 }
 
 func respondError(w http.ResponseWriter, status int, message string) {

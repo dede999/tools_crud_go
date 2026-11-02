@@ -101,30 +101,42 @@ func NewDevice(name, brand string, state DeviceState) (*Device, error) {
 	}, nil
 }
 
+type UpdateParams struct {
+	Name  *string
+	Brand *string
+	State *DeviceState
+}
+
+type UpdateResult struct {
+	StateChanged  bool
+	PreviousState DeviceState
+	NewState      DeviceState
+}
+
 // Update handles full and partial updates adhering to all domain invariants.
-// Returns whether the state changed, previous state, new state, and any validation error.
-func (d *Device) Update(name *string, brand *string, state *DeviceState) (bool, DeviceState, DeviceState, error) {
+// Returns an UpdateResult describing any state transition and a validation error if invariants fail.
+func (d *Device) Update(params UpdateParams) (*UpdateResult, error) {
 	// Domain rule: Name and brand properties cannot be updated if the device is currently in-use.
 	// Only state transitions (e.g. releasing the device back to 'available' or 'inactive') are permitted.
 	if d.State == StateInUse {
-		if (name != nil && strings.TrimSpace(*name) != d.Name) ||
-			(brand != nil && strings.TrimSpace(*brand) != d.Brand) {
-			return false, d.State, d.State, ErrCannotUpdateInUseDevice
+		if (params.Name != nil && strings.TrimSpace(*params.Name) != d.Name) ||
+			(params.Brand != nil && strings.TrimSpace(*params.Brand) != d.Brand) {
+			return nil, ErrCannotUpdateInUseDevice
 		}
 	} else {
 		// When device is not in-use, validate and apply name and brand updates
-		if name != nil {
-			vName, err := validateField(*name, MaxNameLength, ErrInvalidName, ErrNameTooLong)
+		if params.Name != nil {
+			vName, err := validateField(*params.Name, MaxNameLength, ErrInvalidName, ErrNameTooLong)
 			if err != nil {
-				return false, d.State, d.State, err
+				return nil, err
 			}
 			d.Name = vName
 		}
 
-		if brand != nil {
-			vBrand, err := validateField(*brand, MaxBrandLength, ErrInvalidBrand, ErrBrandTooLong)
+		if params.Brand != nil {
+			vBrand, err := validateField(*params.Brand, MaxBrandLength, ErrInvalidBrand, ErrBrandTooLong)
 			if err != nil {
-				return false, d.State, d.State, err
+				return nil, err
 			}
 			d.Brand = vBrand
 		}
@@ -134,23 +146,27 @@ func (d *Device) Update(name *string, brand *string, state *DeviceState) (bool, 
 	prevState := d.State
 	nextState := d.State
 
-	if state != nil {
-		if !IsValidState(*state) {
-			return false, d.State, d.State, ErrInvalidState
+	if params.State != nil {
+		if !IsValidState(*params.State) {
+			return nil, ErrInvalidState
 		}
-		if d.State != *state {
+		if d.State != *params.State {
 			stateChanged = true
 			prevState = d.State
-			nextState = *state
-			d.State = *state
+			nextState = *params.State
+			d.State = *params.State
 		}
 	}
 
-	return stateChanged, prevState, nextState, nil
+	return &UpdateResult{
+		StateChanged:  stateChanged,
+		PreviousState: prevState,
+		NewState:      nextState,
+	}, nil
 }
 
-// CanDelete checks whether the device can be deleted according to business rules.
-func (d *Device) CanDelete() error {
+// ValidateDelete checks whether the device can be deleted according to business rules.
+func (d *Device) ValidateDelete() error {
 	if d.State == StateInUse {
 		return ErrCannotDeleteInUseDevice
 	}
