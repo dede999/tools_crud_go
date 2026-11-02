@@ -82,4 +82,20 @@ This document records the architectural and design decisions made throughout the
   3. **Architectural Simplicity**: Storing the current state directly on the `devices` table with B-Tree indexes enables sub-millisecond filtering on `brand` and `state`, perfectly aligning with the evaluation criteria (*"Code efficiency and general performance"*).
 * **Future Re-evaluation**: If future requirements introduce strict audit compliance (e.g., tracking who changed which state, when, and why), an append-only `device_state_transitions` table can be introduced alongside the existing operational `devices` table (Operational Snapshot + Audit Log pattern) without compromising operational read performance.
 
+---
+
+## ADR 007: Embedded Database Migrations via `//go:embed`
+
+* **Status**: Accepted
+* **Context**: Schema migrations (`001_create_devices_table.sql`) must be executed reliably across local development, Docker Compose, and CI environments without forcing evaluators to install external migration CLI tools (`golang-migrate`, `flyway`, etc.), and without duplicating raw SQL strings across the Go codebase.
+* **Decision**: Use Go's standard library `embed.FS` (`//go:embed *.sql`) in the `migrations` package and consume it via `internal/database/migrations.go`.
+* **Consequences**:
+  * **Pros**:
+    * **Single Source of Truth**: The `.sql` files in `migrations/` are the sole source of truth; zero duplicate SQL strings in Go source code.
+    * **Self-Contained Executable**: The compiled binary embeds its own database schema, guaranteeing that the application can bootstrap its schema on startup anywhere.
+    * **Deterministic Execution**: Migration files are read and executed in sorted lexical order (`001_...`, `002_...`).
+    * **Zero Tooling Overhead**: Eliminates external binary dependencies for evaluators and CI runners.
+  * **Cons**: In large enterprise systems with hundreds of historical migrations, migrations may eventually be decoupled into dedicated init-containers. For this service scope, `//go:embed` is the optimal, idiomatic standard.
+
+
 
