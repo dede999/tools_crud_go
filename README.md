@@ -2,7 +2,7 @@
 
 A production-grade, containerized REST API in Go capable of persisting and managing device resources with real-time state change notifications via Server-Sent Events (SSE).
 
-[![Go Version](https://img.shields.io/badge/Go-1.23%2B-00ADD8?style=flat&logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=flat&logo=go)](https://golang.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=flat&logo=postgresql)](https://www.postgresql.org)
 [![Hurl Test](https://img.shields.io/badge/E2E%20Tests-Hurl-FF6F00?style=flat)](https://hurl.dev)
 [![Container Image](https://img.shields.io/badge/Container-GHCR-24292e?style=flat&logo=github)](https://github.com/dede999/tools_crud_go/pkgs/container/tools_crud_go)
