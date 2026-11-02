@@ -52,3 +52,4 @@ func Load() (*Config, error) {
 		AppEnv:      appEnv,
 	}, nil
 }
+

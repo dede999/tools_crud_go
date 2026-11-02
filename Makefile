@@ -37,3 +37,4 @@ docker-logs: ## Follow Docker Compose container logs
 
 clean: ## Clean build artifacts
 	rm -rf bin/
+
