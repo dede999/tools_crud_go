@@ -62,11 +62,12 @@ func main() {
 	deviceHandler.RegisterRoutes(mux)
 
 	server := &http.Server{
-		Addr:         ":" + port,
-		Handler:      loggingMiddleware(mux),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + port,
+		Handler:           loggingMiddleware(mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// Note: WriteTimeout is intentionally not set globally so that
+		// long-lived SSE streaming connections are not prematurely terminated.
 	}
 
 	stopChan := make(chan os.Signal, 1)

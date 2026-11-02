@@ -242,6 +242,10 @@ func (h *DeviceHandler) SubscribeEvents(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Disable write deadline for long-lived streaming SSE connection (Go 1.20+)
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -258,10 +262,17 @@ func (h *DeviceHandler) SubscribeEvents(w http.ResponseWriter, r *http.Request) 
 	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
 	flusher.Flush()
 
+	// Keep-alive ticker sends comments periodically to prevent proxy/client drop
+	keepAliveTicker := time.NewTicker(15 * time.Second)
+	defer keepAliveTicker.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-keepAliveTicker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
 		case event, ok := <-eventsCh:
 			if !ok {
 				return
