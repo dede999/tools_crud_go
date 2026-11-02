@@ -44,17 +44,21 @@ This document records the architectural and design decisions made throughout the
 
 ---
 
-## ADR 004: Three-Tier Testing Strategy (TDD, Fakes & Hurl E2E)
+## ADR 004: Three-Tier Testing Strategy (TDD, In-Memory Fakes & Hurl E2E)
 
 * **Status**: Accepted
-* **Context**: The test suite needs to be fast, reliable, reproducible, and verifiable without tight coupling to local environments.
-* **Decision**: Adopt a three-tier testing approach:
+* **Context**: The test suite needs to be fast, reliable, reproducible, and verifiable without tight coupling to local environments. We evaluated whether to generate interaction mocks using code-generators like `uber-go/mock` (`mockgen`) or write an in-memory `fakeRepository`.
+* **Decision**: Adopt a three-tier testing approach utilizing an in-memory Fake rather than generated Mocks:
   1. **Domain Unit Tests**: Pure Go unit tests validating business rules and invariants (sub-millisecond execution, zero dependencies).
-  2. **Handler Unit Tests**: HTTP handler tests using Go's `httptest.NewRecorder()` and an in-memory `fakeRepository` implementing the `DeviceRepository` interface.
+  2. **Handler Unit Tests**: HTTP handler tests using Go's `httptest.NewRecorder()` and an in-memory `fakeRepository` implementing `repository.DeviceRepository`.
   3. **End-to-End API Tests (Hurl)**: Declarative HTTP specifications (`tests/hurl/devices.hurl`) executed against the running application and real PostgreSQL database.
+* **Deep Dive: Fakes vs. Mocks (Martin Fowler & Google Testing Philosophy)**:
+  * **State Verification vs. Interaction Verification**: As articulated by Martin Fowler in *“Mocks Aren't Stubs”*, mocks enforce *interaction-based verification* (asserting that method $X$ was called exactly $N$ times with arguments $Y$). This couples tests to internal implementation details: refactoring a handler's internal flow breaks mock expectations even if the HTTP output remains correct.
+  * **Google's Recommendation (*"Prefer Fakes Over Mocks"*)**: Google's engineering practices (*Testing on the Toilet: Prefer Fakes Over Mocks*) advocate using lightweight in-memory fakes. A fake repository (`map[string]Device` with mutex) behaves like a real database: it actually stores, retrieves, and deletes items. Tests verify *observable behavior and state* rather than method invocation counts.
+  * **Where Mocks (e.g. `uber-go/mock`) Are Useful**: Mocks excel in scenarios requiring negative testing and error injection (e.g., simulating a sudden database network timeout, connection pool exhaustion, or disk I/O failure on a specific call) that are difficult to trigger in a standard fake.
 * **Consequences**:
-  * **Pros**: Developers can run `go test ./...` in ~0.3s without needing Docker or network access. Full E2E behavior is validated against the real database using Hurl.
-  * **Cons**: Maintaining both a fake repository for unit tests and a SQL repository for integration.
+  * **Pros**: Tests run in ~0.3s, are immune to handler refactoring, and test true contract behavior without third-party mock generators.
+  * **Cons**: Maintaining an in-memory fake requires keeping it compliant with the `DeviceRepository` interface.
 
 ---
 
@@ -96,6 +100,21 @@ This document records the architectural and design decisions made throughout the
     * **Deterministic Execution**: Migration files are read and executed in sorted lexical order (`001_...`, `002_...`).
     * **Zero Tooling Overhead**: Eliminates external binary dependencies for evaluators and CI runners.
   * **Cons**: In large enterprise systems with hundreds of historical migrations, migrations may eventually be decoupled into dedicated init-containers. For this service scope, `//go:embed` is the optimal, idiomatic standard.
+
+---
+
+## ADR 008: Zero-Dependency Environment Configuration vs. Viper
+
+* **Status**: Accepted
+* **Context**: The service requires configurable parameters (`PORT`, `DATABASE_URL`, `APP_ENV`) conforming to 12-Factor App standards. We evaluated whether to introduce the popular `github.com/spf13/viper` library or implement a lightweight native package (`internal/config`).
+* **Reason for Not Using Viper (Bloatware vs. Pragmatism)**:
+  1. **Heavy Dependency Footprint**: Viper brings over 20 transitive dependencies (`spf13/afero`, `spf13/cast`, `pelletier/go-toml`, `hashicorp/hcl`, `mitchellh/mapstructure`, YAML parsers, etc.). For a focused microservice that only consumes environment variables, pulling in multiple parser libraries represents unnecessary attack surface and binary bloat.
+  2. **Fail-Fast Production Validation**: Viper's default behavior allows silent fallbacks if not meticulously guarded. Our native `internal/config` package implements strict validation: in non-development environments (`APP_ENV != "development"`), missing critical variables like `DATABASE_URL` immediately fails fast with a clear error, preventing silent connection attempts to local defaults in production Kubernetes clusters.
+  3. **Standard Library Idiom**: Go's standard `os`, `net/url`, and `strconv` packages provide 100% of the required parsing and validation capabilities in under 50 lines of clean, readable code with zero external dependencies.
+* **Consequences**:
+  * **Pros**: Zero third-party dependencies, sub-millisecond initialization, strict fail-fast validation in production, and 100% unit test coverage.
+  * **Cons**: If dynamic configuration reloading from etcd/Consul or multi-format file parsing (JSON + YAML + TOML) is later required, a library like Viper or `knadh/koanf` may be considered.
+
 
 
 
