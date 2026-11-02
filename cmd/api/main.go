@@ -4,14 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/dede999/tools_crud_go/internal/database"
 	"github.com/dede999/tools_crud_go/internal/handler"
 	"github.com/dede999/tools_crud_go/internal/notifier"
 	"github.com/dede999/tools_crud_go/internal/repository"
@@ -41,10 +42,11 @@ func main() {
 	}
 	log.Println("Database connection established successfully")
 
-	// Ensure schema exists (self-bootstrapping for local run and CI)
-	if err := runMigrations(db); err != nil {
+	// Apply embedded migrations (single source of truth in migrations/*.sql)
+	if err := database.RunMigrations(ctx, db); err != nil {
 		log.Fatalf("Failed to apply schema migrations: %v", err)
 	}
+	log.Println("Database schema migrations verified successfully")
 
 	repo := repository.NewPostgresRepository(db)
 	eventBroker := notifier.NewBroker()
@@ -96,29 +98,12 @@ func getEnv(key, defaultVal string) string {
 	return defaultVal
 }
 
-func sanitizeDBURL(dbURL string) string {
-	// Simple display sanitizer to hide password in logs
-	return "postgresql://.../"
-}
-
-func runMigrations(db *sql.DB) error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS devices (
-		id UUID PRIMARY KEY,
-		name VARCHAR(255) NOT NULL,
-		brand VARCHAR(255) NOT NULL,
-		state VARCHAR(50) NOT NULL CHECK (state IN ('available', 'in-use', 'inactive')),
-		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-	);
-	CREATE INDEX IF NOT EXISTS idx_devices_brand ON devices (brand);
-	CREATE INDEX IF NOT EXISTS idx_devices_state ON devices (state);
-	`
-	_, err := db.Exec(schema)
+func sanitizeDBURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("migration error: %w", err)
+		return "postgres://[invalid-database-url]"
 	}
-	log.Println("Database schema verified")
-	return nil
+	return parsed.Redacted()
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -128,4 +113,3 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		log.Printf("%s %s in %v", r.Method, r.URL.Path, time.Since(start))
 	})
 }
-
