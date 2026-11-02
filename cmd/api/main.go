@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dede999/tools_crud_go/internal/config"
 	"github.com/dede999/tools_crud_go/internal/database"
 	"github.com/dede999/tools_crud_go/internal/handler"
 	"github.com/dede999/tools_crud_go/internal/notifier"
@@ -20,11 +21,15 @@ import (
 )
 
 func main() {
-	port := getEnv("PORT", "8080")
-	dbURL := getEnv("DATABASE_URL", "postgres://postgres:postgrespassword@localhost:5432/devices_db?sslmode=disable")
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load application configuration: %v", err)
+	}
 
-	log.Printf("Connecting to database at %s...", sanitizeDBURL(dbURL))
-	db, err := sql.Open("pgx", dbURL)
+	log.Printf("Starting application in [%s] mode on port %s...", cfg.AppEnv, cfg.Port)
+	log.Printf("Connecting to database at %s...", sanitizeDBURL(cfg.DatabaseURL))
+
+	db, err := sql.Open("pgx", cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to open database connection: %v", err)
 	}
@@ -62,7 +67,7 @@ func main() {
 	deviceHandler.RegisterRoutes(mux)
 
 	server := &http.Server{
-		Addr:              ":" + port,
+		Addr:              ":" + cfg.Port,
 		Handler:           loggingMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -74,7 +79,7 @@ func main() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("HTTP server listening on port %s", port)
+		log.Printf("HTTP server listening on port %s", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("HTTP server error: %v", err)
 		}
@@ -90,13 +95,6 @@ func main() {
 		log.Printf("Server shutdown error: %v", err)
 	}
 	log.Println("Server gracefully stopped")
-}
-
-func getEnv(key, defaultVal string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return defaultVal
 }
 
 func sanitizeDBURL(rawURL string) string {
