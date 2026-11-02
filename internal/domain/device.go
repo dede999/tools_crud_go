@@ -104,33 +104,31 @@ func NewDevice(name, brand string, state DeviceState) (*Device, error) {
 // Update handles full and partial updates adhering to all domain invariants.
 // Returns whether the state changed, previous state, new state, and any validation error.
 func (d *Device) Update(name *string, brand *string, state *DeviceState) (bool, DeviceState, DeviceState, error) {
+	// Domain rule: Name and brand properties cannot be updated if the device is currently in-use.
+	// Only state transitions (e.g. releasing the device back to 'available' or 'inactive') are permitted.
 	if d.State == StateInUse {
 		if (name != nil && strings.TrimSpace(*name) != d.Name) ||
 			(brand != nil && strings.TrimSpace(*brand) != d.Brand) {
 			return false, d.State, d.State, ErrCannotUpdateInUseDevice
 		}
-	}
-
-	var newName = d.Name
-	if name != nil {
-		vName, err := validateField(*name, MaxNameLength, ErrInvalidName, ErrNameTooLong)
-		if err != nil {
-			return false, d.State, d.State, err
+	} else {
+		// When device is not in-use, validate and apply name and brand updates
+		if name != nil {
+			vName, err := validateField(*name, MaxNameLength, ErrInvalidName, ErrNameTooLong)
+			if err != nil {
+				return false, d.State, d.State, err
+			}
+			d.Name = vName
 		}
-		newName = vName
-	}
 
-	var newBrand = d.Brand
-	if brand != nil {
-		vBrand, err := validateField(*brand, MaxBrandLength, ErrInvalidBrand, ErrBrandTooLong)
-		if err != nil {
-			return false, d.State, d.State, err
+		if brand != nil {
+			vBrand, err := validateField(*brand, MaxBrandLength, ErrInvalidBrand, ErrBrandTooLong)
+			if err != nil {
+				return false, d.State, d.State, err
+			}
+			d.Brand = vBrand
 		}
-		newBrand = vBrand
 	}
-
-	d.Name = newName
-	d.Brand = newBrand
 
 	stateChanged := false
 	prevState := d.State
