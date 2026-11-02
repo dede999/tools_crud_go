@@ -70,6 +70,20 @@ tools_crud_go/
 * [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/)
 * (Optional for local dev) [Go 1.23+](https://golang.org/dl/) and [Hurl](https://hurl.dev)
 
+### Using the Makefile
+
+A self-documenting `Makefile` is included with shortcuts for development and testing:
+
+```bash
+make help         # List all available targets
+make docker-up    # Start PostgreSQL and API in background via Docker Compose
+make docker-down  # Stop all containers
+make run          # Run API locally
+make test-race    # Run unit tests with data race detector
+make test-e2e     # Run Hurl end-to-end API tests
+make build        # Compile static binary to bin/api
+```
+
 ### Option 1: Run with Docker Compose (Recommended)
 
 Start the API and PostgreSQL in a single command:
@@ -180,9 +194,11 @@ Detailed decision records documenting trade-offs are available in [`docs/archite
 * **ADR 001**: Standard library `net/http` ServeMux routing over third-party routers.
 * **ADR 002**: Native PostgreSQL with `pgx` and parameterized SQL over GORM.
 * **ADR 003**: Defensive input validation and security-in-depth.
-* **ADR 004**: Three-tier testing strategy (TDD, in-memory fakes, Hurl E2E).
+* **ADR 004**: Three-tier testing strategy (TDD, in-memory fakes vs. mocks, Hurl E2E).
 * **ADR 005**: Real-time state change notifications via Server-Sent Events (SSE).
 * **ADR 006 (Rejected)**: Dedicated state transition audit table & materialized views (rationale on query performance degradation vs. YAGNI).
+* **ADR 007**: Embedded database migrations via `//go:embed` (single source of truth).
+* **ADR 008**: Zero-dependency environment configuration (`internal/config`) vs. Viper.
 
 ---
 
